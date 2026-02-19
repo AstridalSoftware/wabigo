@@ -2,16 +2,23 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"log"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"regexp"
+	"strings"
 	"syscall"
+	"time"
+	"wabigo/api"
+	"wabigo/config"
+	"wabigo/helpers"
+	"wabigo/services"
 
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 
@@ -19,17 +26,12 @@ import (
 	"github.com/mdp/qrterminal/v3"
 )
 
-func sendMessage(client *whatsmeow.Client, jid types.JID, text string) {
-	msg := &waE2E.Message{
-		Conversation: &text,
-	}
-	_, err := client.SendMessage(context.Background(), jid, msg)
-	if err != nil {
-		fmt.Printf("Error enviando mensaje: %v\n", err)
-	}
-}
 
 func main() {
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	ctx := context.Background()
 
@@ -55,58 +57,65 @@ func main() {
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
 	// Agregar handler de eventos
-	client.AddEventHandler(func(evt interface{}) {
+	client.AddEventHandler(func(evt any) {
 		switch v := evt.(type) {
 		case *events.Message:
-			// Ignorar mensajes sin contenido
-			if v.Message == nil {
-				return
-			}
-
-			// Ignorar mensajes enviados por el propio bot
-			if v.Info.IsFromMe {
-				return
-			}
-
-			// Obtener texto del mensaje (normal o extendido)
-			var text string
-			if v.Message.GetConversation() != "" {
-				text = v.Message.GetConversation()
-			} else if v.Message.GetExtendedTextMessage() != nil {
-				text = v.Message.GetExtendedTextMessage().GetText()
-			} else {
-				// Mensaje no texto (imagen, audio, sticker)
-				fmt.Printf("Mensaje de %s recibido pero no es texto\n", v.Info.Sender.String())
-				return
-			}
-
-			sender := v.Info.Sender.String()
-			fmt.Printf("Mensaje de %s: %s\n", sender, text)
-
-			// 🔹 Detectar @NombreNegocio
-			reNegocio := regexp.MustCompile(`^@(\w+)`)
-			if matches := reNegocio.FindStringSubmatch(text); len(matches) > 1 {
-				negocio := matches[1]
-				reply := fmt.Sprintf("Has seleccionado el negocio: %s", negocio)
-				fmt.Println("PETICION DE NEGOCIO")
-				sendMessage(client, v.Info.Sender, reply)
-				return
-			}
-
-			// 🔹 Detectar pedidos #IDxCantidad
-			rePedido := regexp.MustCompile(`#(\d+)x(\d+)`)
-			pedidos := rePedido.FindAllStringSubmatch(text, -1)
-			if len(pedidos) > 0 {
-				reply := "Has ordenado:\n"
-				for _, p := range pedidos {
-					itemID := p[1]
-					qty := p[2]
-					reply += fmt.Sprintf("- Item #%s x%s\n", itemID, qty)
+			
+			img := v.Message.GetImageMessage()
+			if img == nil && cfg.AppEnv != "development" {
+				_, err := helpers.NotifyByWA(
+					client,
+					v.Info.Sender.ToNonAD(),
+					"¡Hola! Para recuperar tu contraseña, por favor manda una foto de tu INE y en el mensaje escribe tu CURP",
+				)
+				if err != nil {
+					fmt.Printf("Error enviando notificación: %v\n", err)
 				}
-				fmt.Println("PETICION DE PEDIDO")
-				sendMessage(client, v.Info.Sender, reply)
 				return
 			}
+
+			text := img.GetCaption()
+			fmt.Println("Texto recibido:", text)
+			rgxCURP := regexp.MustCompile(`(?i)\b[A-Z][AEIOU][A-Z]{2}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d\b`)
+			if matches := rgxCURP.FindStringSubmatch(text); len(matches) > 0 {
+
+				data, err := client.Download(context.Background(), img)
+				if err != nil {
+					fmt.Println("Error descargando imagen:", err)
+					return
+				}
+
+				// fileName := fmt.Sprintf("image_%d.jpg", time.Now().Unix())
+				// err = os.WriteFile(fileName, data, 0644)
+				base64Image := base64.StdEncoding.EncodeToString(data)
+
+				issuesService := &services.IssuesClient{Client:api.NewHttpClient(cfg.API_BASE_URL)}
+				_, err = issuesService.AddIssue(context.Background(), 
+					&services.IssueCreateRequest{
+					Title:       v.Info.Sender.ToNonAD().User,
+					Description: strings.ToUpper(text),
+					ImageB64: base64Image,
+				})
+				if err != nil {
+					fmt.Printf("Error obteniendo issues: %v\n", err)
+				}
+				fmt.Printf("SE ENVIO REQUEST")
+				randomTimeOut := rand.IntN(3) + 1
+				time.Sleep(time.Duration(randomTimeOut) * time.Second)
+				_, err = helpers.NotifyByWA(
+					client,
+					v.Info.Sender.ToNonAD(),
+					"Solicitud de contraseña recibida",
+				)
+				if err != nil {
+					fmt.Printf("Error enviando notificación: %v\n", err)
+				}
+				fmt.Printf("Se envio notificacion mensaje")
+				return
+			}else{
+				fmt.Printf("NO MATCH CURP")
+			}
+
 		}
 	})
 
