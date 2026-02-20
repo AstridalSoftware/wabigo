@@ -2,20 +2,15 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"log"
-	"math/rand/v2"
 	"os"
 	"os/signal"
-	"regexp"
-	"strings"
 	"syscall"
-	"time"
-	"wabigo/api"
 	"wabigo/config"
 	"wabigo/helpers"
-	"wabigo/services"
+	"wabigo/structs"
+	"wabigo/workers"
 
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store/sqlstore"
@@ -28,12 +23,18 @@ import (
 
 
 func main() {
+
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+    defer stop()
+	
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
-
-	ctx := context.Background()
 
 	// Crear logger para la base de datos
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
@@ -56,13 +57,16 @@ func main() {
 	// Crear cliente de WhatsApp
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
+	// Crear dispatcher de workers
+	dispatcher := workers.NewSimpleWorkerDispatcher(ctx, 2, 100) // 2 workers, buffer 100
+
 	// Agregar handler de eventos
 	client.AddEventHandler(func(evt any) {
 		switch v := evt.(type) {
 		case *events.Message:
 			
-			img := v.Message.GetImageMessage()
-			if img == nil && cfg.AppEnv != "development" {
+			msg := v.Message.GetImageMessage()
+			if msg == nil && cfg.AppEnv != "development" {
 				_, err := helpers.NotifyByWA(
 					client,
 					v.Info.Sender.ToNonAD(),
@@ -74,47 +78,12 @@ func main() {
 				return
 			}
 
-			text := img.GetCaption()
-			fmt.Println("Texto recibido:", text)
-			rgxCURP := regexp.MustCompile(`(?i)\b[A-Z][AEIOU][A-Z]{2}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d\b`)
-			if matches := rgxCURP.FindStringSubmatch(text); len(matches) > 0 {
-
-				data, err := client.Download(context.Background(), img)
-				if err != nil {
-					fmt.Println("Error descargando imagen:", err)
-					return
-				}
-
-				// fileName := fmt.Sprintf("image_%d.jpg", time.Now().Unix())
-				// err = os.WriteFile(fileName, data, 0644)
-				base64Image := base64.StdEncoding.EncodeToString(data)
-
-				issuesService := &services.IssuesClient{Client:api.NewHttpClient(cfg.API_BASE_URL)}
-				_, err = issuesService.AddIssue(context.Background(), 
-					&services.IssueCreateRequest{
-					Title:       v.Info.Sender.ToNonAD().User,
-					Description: strings.ToUpper(text),
-					ImageB64: base64Image,
-				})
-				if err != nil {
-					fmt.Printf("Error obteniendo issues: %v\n", err)
-				}
-				fmt.Printf("SE ENVIO REQUEST")
-				randomTimeOut := rand.IntN(3) + 1
-				time.Sleep(time.Duration(randomTimeOut) * time.Second)
-				_, err = helpers.NotifyByWA(
-					client,
-					v.Info.Sender.ToNonAD(),
-					"Solicitud de contraseña recibida",
-				)
-				if err != nil {
-					fmt.Printf("Error enviando notificación: %v\n", err)
-				}
-				fmt.Printf("Se envio notificacion mensaje")
-				return
-			}else{
-				fmt.Printf("NO MATCH CURP")
-			}
+			dispatcher.Enqueue(structs.RequestImageMessage{
+					ID:         123,
+					WAClient: client,
+					Sender: v.Info.Sender,
+					Msg:	   msg,
+			})
 
 		}
 	})
@@ -147,10 +116,12 @@ func main() {
 	}
 
 	// Esperar Ctrl+C para desconectar correctamente
-	c := make(chan os.Signal, 1)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
-	<-c
+	<-ctx.Done()
 
-	client.Disconnect()
-	fmt.Println("Cliente desconectado.")
+    fmt.Println("Shutting down...")
+
+	dispatcher.Shutdown()
+    client.Disconnect()
+
+    fmt.Println("Cliente desconectado.")
 }
