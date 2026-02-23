@@ -16,25 +16,25 @@ type IssuesClient struct {
 type IssueCreateRequest struct {
 	Title       string `json:"title"`
 	Description string `json:"description"`
-	ImageB64 string `json:"image_b64"`
+	ImageB64    string `json:"image_b64"`
 }
 
 type Issue struct {
-	ID string `json:"id"`
-	Title string `json:"title"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
 	Description string `json:"description"`
-	OwnerID string `json:"owner_id"`
-	CreatedAt string `json:"created_at"`
+	OwnerID     string `json:"owner_id"`
+	CreatedAt   string `json:"created_at"`
 }
 
 type IssuesResponse struct {
-    Data  []Issue `json:"data"`
-    Count int    `json:"count"`
+	Data  []Issue `json:"data"`
+	Count int     `json:"count"`
 }
 
-func NewIssuesClient(baseURL string) *IssuesClient {
+func NewIssuesService(apiClient *api.Client) *IssuesClient {
 	return &IssuesClient{
-		Client: api.NewHttpClient(baseURL),
+		Client: apiClient,
 	}
 }
 
@@ -71,7 +71,7 @@ func (c *IssuesClient) GetAllIssues(ctx context.Context) (*IssuesResponse, error
 	return &response, nil
 }
 
-func (c *IssuesClient) 	AddIssue(ctx context.Context, issue *IssueCreateRequest) (*Issue, error) {
+func (c *IssuesClient) AddIssue(ctx context.Context, issue *IssueCreateRequest) (*Issue, error) {
 	jsonBytes, err := json.Marshal(issue)
 	if err != nil {
 		return nil, err
