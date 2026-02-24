@@ -21,10 +21,12 @@ type WASenderWorkerDispatcher struct {
 }
 
 func NewWASenderWorkerDispatcher(ctx context.Context, workerCount int, bufferSize int) *WASenderWorkerDispatcher {
+	ctx, cancel := context.WithCancel(ctx)
 	d := &WASenderWorkerDispatcher{
 		WASenderDispatcher: &structs.WASenderDispatcher{
-			Jobs: make(chan structs.WASenderRequest, bufferSize),
-			Ctx:  ctx,
+			Jobs:   make(chan structs.WASenderRequest, bufferSize),
+			Ctx:    ctx,
+			Cancel: cancel,
 		},
 	}
 
@@ -39,13 +41,17 @@ func NewWASenderWorkerDispatcher(ctx context.Context, workerCount int, bufferSiz
 func (d *WASenderWorkerDispatcher) worker(id int) {
 
 	cfg := config.Load()
-	DnetSoporteAPI := api.CreateHttpClient(cfg.DNET_SOPORTE_API_BASE_URL)
+	DnetSoporteAPI := api.CreateHttpClient(cfg.DNET_SOPORTE_API_BASE_URL, cfg.API_KEY)
 
 	defer d.WG.Done()
 
 	for {
 		select {
-		case req := <-d.Jobs:
+		case req, ok := <-d.Jobs:
+			if !ok {
+				log.Printf("Worker %d drained y terminado\n", id)
+				return
+			}
 			// Lógica de negocio + llamadas a APIs
 			fmt.Printf("Worker %d procesando mensaje %d\n", id, req.ID)
 			text := req.Payload.Data.Messages.MessageBody
@@ -53,7 +59,7 @@ func (d *WASenderWorkerDispatcher) worker(id int) {
 			rgxCURP := regexp.MustCompile(`(?i)\b[A-Z][AEIOU][A-Z]{2}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d\b`)
 			if matches := rgxCURP.FindStringSubmatch(text); len(matches) > 0 {
 
-				data, err := helpers.WASenderDownloadMedia(context.Background(), &req.Payload)
+				data, err := helpers.WASenderDownloadMedia(d.Ctx, &req.Payload)
 				if err != nil {
 					fmt.Println("Error descargando imagen:", err)
 					break
@@ -62,7 +68,7 @@ func (d *WASenderWorkerDispatcher) worker(id int) {
 				base64Image := base64.StdEncoding.EncodeToString(data)
 
 				issuesService := services.NewIssuesService(DnetSoporteAPI)
-				_, err = issuesService.AddIssue(context.Background(),
+				_, err = issuesService.AddIssue(d.Ctx,
 					&services.IssueCreateRequest{
 						Title:       req.Payload.Data.Messages.CleanedSenderPn,
 						Description: strings.ToUpper(text),
@@ -78,7 +84,7 @@ func (d *WASenderWorkerDispatcher) worker(id int) {
 				randomTimeOut := rand.IntN(3) + 1
 				time.Sleep(time.Duration(randomTimeOut) * time.Second)
 				_, err = helpers.WASenderSendMessage(
-					context.Background(),
+					d.Ctx,
 					req.Payload.Data.Messages.Key.RemoteJid,
 					"Solicitud de contraseña recibida",
 				)
@@ -106,6 +112,12 @@ func (d *WASenderWorkerDispatcher) Enqueue(msg structs.WASenderRequest) {
 	}
 }
 
-func (d *WASenderWorkerDispatcher) Shutdown() {
+func (d *WASenderWorkerDispatcher) Abort() {
+	d.Cancel()
+	d.WG.Wait()
+}
+
+func (d *WASenderWorkerDispatcher) Drain() {
+	close(d.Jobs)
 	d.WG.Wait()
 }

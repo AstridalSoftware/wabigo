@@ -28,9 +28,10 @@ type Dispatcher struct {
 }
 
 type WASenderDispatcher struct {
-	Jobs chan WASenderRequest
-	WG   sync.WaitGroup
-	Ctx  context.Context
+	Jobs   chan WASenderRequest
+	WG     sync.WaitGroup
+	Ctx    context.Context
+	Cancel context.CancelFunc
 }
 
 type WASenderWebhookPayload struct {

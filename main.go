@@ -3,46 +3,92 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 	"wabigo/helpers"
 	"wabigo/structs"
 	"wabigo/workers"
 
-	_ "github.com/mattn/go-sqlite3" // Importar el driver SQLite
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
 
-	ctx, stop := signal.NotifyContext(
-		context.Background(),
-		os.Interrupt,
-		syscall.SIGTERM,
-	)
-	defer stop()
+	// Canal explícito para señales
+	sigChan := make(chan os.Signal, 1)
 
-	// Crear dispatcher de workers
-	dispatcher := workers.NewWASenderWorkerDispatcher(ctx, 2, 100) // 2 workers, buffer 100
-	http.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
+	signal.Notify(
+		sigChan,
+		os.Interrupt,    // Ctrl+C
+		syscall.SIGTERM, // kill
+		syscall.SIGQUIT, // kill -3
+	)
+
+	dispatcher := workers.NewWASenderWorkerDispatcher(context.Background(), 2, 100)
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/webhook", func(w http.ResponseWriter, r *http.Request) {
+
+		fmt.Println("WEBHOOK RECEIVED")
+
+		if !helpers.IsWebhookSignatureValid(r) {
+			http.Error(w, "Invalid signature", http.StatusUnauthorized)
+			return
+		}
+
 		payload, err := helpers.ParseWebhookPayload(r)
 		if err != nil {
 			http.Error(w, "Invalid payload", http.StatusBadRequest)
 			return
 		}
-
+		w.WriteHeader(http.StatusOK)
+		fmt.Println("WEBHOOK ENQUEUED")
 		dispatcher.Enqueue(structs.WASenderRequest{
 			ID:      123,
 			Payload: *payload,
 		})
 
 	})
-	http.ListenAndServe(":8080", nil)
 
-	// Esperar Ctrl+C para desconectar correctamente
-	<-ctx.Done()
-	fmt.Println("Shutting down...")
-	dispatcher.Shutdown()
-	fmt.Println("Cliente desconectado.")
+	server := &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+
+	go func() {
+		fmt.Println("STARTING SERVER ON :8080")
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("listen: %v\n", err)
+		}
+	}()
+
+	sig := <-sigChan
+	fmt.Printf("Signal received: %v\n", sig)
+
+	switch sig {
+
+	case os.Interrupt, syscall.SIGTERM:
+		fmt.Println("Starting graceful drain...")
+
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			log.Printf("HTTP shutdown error: %v\n", err)
+		}
+
+		dispatcher.Drain()
+
+	case syscall.SIGQUIT:
+		fmt.Println("Immediate abort...")
+
+		dispatcher.Abort()
+	}
+
+	fmt.Println("Proceso finalizado.")
 }

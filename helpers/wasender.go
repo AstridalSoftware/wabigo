@@ -10,6 +10,21 @@ import (
 	"wabigo/structs"
 )
 
+var cfg = config.Load()
+var WASenderAPI *api.Client = api.CreateHttpClient(cfg.WASENDER_API_BASE_URL, cfg.WASENDER_API_KEY)
+
+func IsWebhookSignatureValid(r *http.Request) bool {
+	if r.Header.Get("X-Webhook-Signature") == "" {
+		return false
+	}
+
+	if r.Header.Get("X-Webhook-Signature") != cfg.WEBHOOK_SECRET {
+		return false
+	}
+	// Aquí iría la lógica de validación usando el secret
+	return true
+}
+
 func ParseWebhookPayload(r *http.Request) (*structs.WASenderWebhookPayload, error) {
 	var payload structs.WASenderWebhookPayload
 	err := json.NewDecoder(r.Body).Decode(&payload)
@@ -18,9 +33,6 @@ func ParseWebhookPayload(r *http.Request) (*structs.WASenderWebhookPayload, erro
 	}
 	return &payload, nil
 }
-
-var cfg = config.Load()
-var WASenderAPI *api.Client = api.CreateHttpClient(cfg.WASENDER_API_BASE_URL)
 
 func WASenderDownloadMedia(ctx context.Context, msg *structs.WASenderWebhookPayload) ([]byte, error) {
 
@@ -42,21 +54,26 @@ func WASenderDownloadMedia(ctx context.Context, msg *structs.WASenderWebhookPayl
 	}
 	jsonPayload, _ := json.Marshal(payload)
 
-	res, err := WASenderAPI.DoPostRequest(ctx, "/decrypt-media", jsonPayload)
+	res, err := WASenderAPI.DoPostRequest(ctx, "/decrypt-media", cfg.API_KEY, jsonPayload)
 	if err != nil {
 		return nil, err
 	}
+	res.Body.Close()
 	var apiResponse structs.WASenderDecryptMediaResponse
 	if err := json.NewDecoder(res.Body).Decode(&apiResponse); err != nil {
 		return nil, err
 	}
 
-	fileResponse, err := WASenderAPI.DoGetRequest(ctx, apiResponse.PublicURL+"/"+msg.Data.Messages.Key.ID)
+	fileResponse, err := WASenderAPI.DoGetRequest(ctx, apiResponse.PublicURL+"/"+msg.Data.Messages.Key.ID, cfg.API_KEY)
 	if err != nil {
 		return nil, err
 	}
-
-	return io.ReadAll(fileResponse.Body)
+	file, err := io.ReadAll(fileResponse.Body)
+	if err != nil {
+		return nil, err
+	}
+	fileResponse.Body.Close()
+	return file, nil
 }
 
 func WASenderSendMessage(ctx context.Context, to string, text string) (*structs.WASenderSendMessageResponse, error) {
@@ -67,7 +84,7 @@ func WASenderSendMessage(ctx context.Context, to string, text string) (*structs.
 	}
 	payload, _ := json.Marshal(payloadMap)
 
-	req, err := WASenderAPI.DoPostRequest(ctx, "/send-message", payload)
+	req, err := WASenderAPI.DoPostRequest(ctx, "/send-message", cfg.API_KEY, payload)
 	if err != nil {
 		panic(err)
 	}

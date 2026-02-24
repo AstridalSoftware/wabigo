@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"sync"
 
 	"github.com/joho/godotenv"
@@ -10,9 +11,11 @@ import (
 type Config struct {
 	WASENDER_API_BASE_URL     string `envconfig:"WASENDER_API_BASE_URL" required:"true"`
 	DNET_SOPORTE_API_BASE_URL string `envconfig:"DNET_SOPORTE_API_BASE_URL" required:"true"`
-	AppEnv                    string `envconfig:"APP_ENV" default:"development"`
-	Debug                     bool   `envconfig:"DEBUG" default:"false"`
-	APIKey                    string `envconfig:"API_KEY" required:"true"`
+	APP_ENV                   string `envconfig:"APP_ENV" default:"development"`
+	DEBUG                     bool   `envconfig:"DEBUG" default:"false"`
+	API_KEY                   string `envconfig:"API_KEY" required:"true"`
+	WASENDER_API_KEY          string `envconfig:"WASENDER_API_KEY" required:"true"`
+	WEBHOOK_SECRET            string `envconfig:"WEBHOOK_SECRET" required:"true"`
 }
 
 var (
@@ -23,9 +26,12 @@ var (
 
 func Load() *Config {
 	once.Do(func() {
-		err = godotenv.Load()
-		err = envconfig.Process("", &cfg)
-		panic(err)
+		if err := godotenv.Load(); err != nil && os.Getenv("APP_ENV") == "local" {
+			panic(err)
+		}
+		if err := envconfig.Process("", &cfg); err != nil {
+			panic(err)
+		}
 	})
 	return &cfg
 }

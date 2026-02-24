@@ -15,6 +15,7 @@ import (
 type Client struct {
 	HTTP    *http.Client
 	BaseURL string
+	Secret  string
 }
 
 var (
@@ -22,7 +23,7 @@ var (
 	cfg  = config.Load()
 )
 
-func CreateHttpClient(baseURL string) *Client {
+func CreateHttpClient(baseURL string, secret string) *Client {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -39,11 +40,12 @@ func CreateHttpClient(baseURL string) *Client {
 			Transport: transport,
 		},
 		BaseURL: baseURL,
+		Secret:  secret,
 	}
 
 }
 
-func (c *Client) DoPostRequest(ctx context.Context, endpoint string, payload []byte) (*http.Response, error) {
+func (c *Client) DoPostRequest(ctx context.Context, endpoint string, secret string, payload []byte) (*http.Response, error) {
 	jsonBytes, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -58,18 +60,18 @@ func (c *Client) DoPostRequest(ctx context.Context, endpoint string, payload []b
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", cfg.APIKey)
+	req.Header.Set("Authorization", secret)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	resp.Body.Close()
+	//resp.Body.Close()
 	return resp, nil
 }
 
-func (c *Client) DoGetRequest(ctx context.Context, endpoint string) (*http.Response, error) {
+func (c *Client) DoGetRequest(ctx context.Context, endpoint string, secret string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodGet,
@@ -80,13 +82,13 @@ func (c *Client) DoGetRequest(ctx context.Context, endpoint string) (*http.Respo
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", cfg.APIKey)
+	req.Header.Set("Authorization", secret)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	resp.Body.Close()
+	//resp.Body.Close()
 	return resp, nil
 }
