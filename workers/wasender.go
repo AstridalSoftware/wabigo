@@ -59,7 +59,7 @@ func (d *WASenderWorkerDispatcher) worker(id int) {
 			rgxCURP := regexp.MustCompile(`(?i)\b[A-Z][AEIOU][A-Z]{2}\d{6}[HM][A-Z]{2}[B-DF-HJ-NP-TV-Z]{3}[A-Z0-9]\d\b`)
 			if matches := rgxCURP.FindStringSubmatch(text); len(matches) > 0 {
 
-				data, err := helpers.WASenderDownloadMedia(d.Ctx, &req.Payload)
+				data, err := helpers.WASenderDownloadMedia(d.Ctx, req.Payload)
 				if err != nil {
 					fmt.Println("Error descargando imagen:", err)
 					break
@@ -70,7 +70,7 @@ func (d *WASenderWorkerDispatcher) worker(id int) {
 				issuesService := services.NewIssuesService(DnetSoporteAPI)
 				_, err = issuesService.AddIssue(d.Ctx,
 					&services.IssueCreateRequest{
-						Title:       req.Payload.Data.Messages.CleanedSenderPn,
+						Title:       req.Payload.Data.Messages.Key.CleanedSenderPn,
 						Description: strings.ToUpper(text),
 						ImageB64:    base64Image,
 					})
@@ -79,13 +79,13 @@ func (d *WASenderWorkerDispatcher) worker(id int) {
 					break
 				}
 
-				fmt.Printf("SE ENVIO REQUEST")
+				fmt.Println("ENVIAR NOTIFICACION DE SOLICITUD DE CONTRASEÑA")
 
 				randomTimeOut := rand.IntN(3) + 1
 				time.Sleep(time.Duration(randomTimeOut) * time.Second)
 				_, err = helpers.WASenderSendMessage(
 					d.Ctx,
-					req.Payload.Data.Messages.Key.RemoteJid,
+					req.Payload.Data.Messages.Key.CleanedSenderPn,
 					"Solicitud de contraseña recibida",
 				)
 				if err != nil {

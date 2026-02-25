@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +14,7 @@ import (
 	"wabigo/structs"
 	"wabigo/workers"
 
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
@@ -47,10 +49,12 @@ func main() {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
+		b, _ := json.MarshalIndent(payload, "", "  ")
+		fmt.Println(string(b))
 		fmt.Println("WEBHOOK ENQUEUED")
 		dispatcher.Enqueue(structs.WASenderRequest{
-			ID:      123,
-			Payload: *payload,
+			ID:      uuid.New(),
+			Payload: payload,
 		})
 
 	})

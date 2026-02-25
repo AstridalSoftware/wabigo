@@ -3,6 +3,7 @@ package helpers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"wabigo/api"
@@ -54,17 +55,17 @@ func WASenderDownloadMedia(ctx context.Context, msg *structs.WASenderWebhookPayl
 	}
 	jsonPayload, _ := json.Marshal(payload)
 
-	res, err := WASenderAPI.DoPostRequest(ctx, "/decrypt-media", cfg.API_KEY, jsonPayload)
+	res, err := WASenderAPI.DoPostRequest(ctx, "/decrypt-media", cfg.WASENDER_API_KEY, jsonPayload)
 	if err != nil {
 		return nil, err
 	}
-	res.Body.Close()
 	var apiResponse structs.WASenderDecryptMediaResponse
 	if err := json.NewDecoder(res.Body).Decode(&apiResponse); err != nil {
 		return nil, err
 	}
-
-	fileResponse, err := WASenderAPI.DoGetRequest(ctx, apiResponse.PublicURL+"/"+msg.Data.Messages.Key.ID, cfg.API_KEY)
+	res.Body.Close()
+	fmt.Printf("URL de descarga: %s\n", apiResponse.PublicURL+"/"+msg.Data.Messages.Key.ID)
+	fileResponse, err := WASenderAPI.DoGetRequest(ctx, apiResponse.PublicURL+"/"+msg.Data.Messages.Key.ID, cfg.WASENDER_API_KEY)
 	if err != nil {
 		return nil, err
 	}
@@ -84,13 +85,15 @@ func WASenderSendMessage(ctx context.Context, to string, text string) (*structs.
 	}
 	payload, _ := json.Marshal(payloadMap)
 
-	req, err := WASenderAPI.DoPostRequest(ctx, "/send-message", cfg.API_KEY, payload)
+	req, err := WASenderAPI.DoPostRequest(ctx, "/send-message", cfg.WASENDER_API_KEY, payload)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
+
 	var apiResponse structs.WASenderSendMessageResponse
 	if err := json.NewDecoder(req.Body).Decode(&apiResponse); err != nil {
 		return nil, err
 	}
+	req.Body.Close()
 	return &apiResponse, nil
 }

@@ -67,6 +67,9 @@ func (c *Client) DoPostRequest(ctx context.Context, endpoint string, secret stri
 	if err != nil {
 		return nil, err
 	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("api error: %s", resp.Status)
+	}
 	//resp.Body.Close()
 	return resp, nil
 }

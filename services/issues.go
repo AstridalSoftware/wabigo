@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"wabigo/api"
+	"wabigo/config"
 )
 
 type IssuesClient struct {
@@ -38,6 +39,8 @@ func NewIssuesService(apiClient *api.Client) *IssuesClient {
 	}
 }
 
+var cfg = config.Load()
+
 func (c *IssuesClient) GetAllIssues(ctx context.Context) (*IssuesResponse, error) {
 
 	req, err := http.NewRequestWithContext(
@@ -50,7 +53,7 @@ func (c *IssuesClient) GetAllIssues(ctx context.Context) (*IssuesResponse, error
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzIxMjU1NDgsInN1YiI6IjA5ZjIxYTczLWM4MTUtNDczMy04ZjI1LTU5ZDhmNjM1NmU1YyJ9.UyOQJRhjHu1NYXSrZbAiSFIyYk3-5-Gq1gzNkDXpzYQ")
+	req.Header.Set("Authorization", cfg.API_KEY)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
@@ -76,6 +79,7 @@ func (c *IssuesClient) AddIssue(ctx context.Context, issue *IssueCreateRequest) 
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("INICIO REQUEST")
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
@@ -86,23 +90,24 @@ func (c *IssuesClient) AddIssue(ctx context.Context, issue *IssueCreateRequest) 
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3NzIyMTIxNjUsInN1YiI6IjBjYWJhNjJlLTJkMGUtNGJhMC04MGE1LTE5YTcxZmFhMTM3NyJ9.MOzybLq-m3f9U9BLhDO2uMAFBSUc3RB3N_cgfjmDRc0")
+	req.Header.Set("Authorization", cfg.API_KEY)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.HTTP.Do(req)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		return nil, fmt.Errorf("api error: %s", resp.Status)
 	}
+	fmt.Println("FIN REQUEST")
 
 	var response Issue
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return nil, err
 	}
-
+	resp.Body.Close()
+	fmt.Printf("Issue creado con ID: %s\n", response.ID)
 	return &response, nil
 }

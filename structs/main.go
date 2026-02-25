@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 
+	"github.com/google/uuid"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
@@ -17,8 +18,8 @@ type RequestImageMessage struct {
 }
 
 type WASenderRequest struct {
-	ID      int
-	Payload WASenderWebhookPayload
+	ID      uuid.UUID
+	Payload *WASenderWebhookPayload
 }
 
 type Dispatcher struct {
